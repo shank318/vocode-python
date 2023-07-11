@@ -21,7 +21,7 @@ class RedisTranscriptDataStore(TranscriptDataStore):
         self.logger = logger or logging.getLogger(__name__)
 
     def getConversationTranscriptCacheKey(self):
-        return 'transcript_'+self.conversation_id
+        return 'transcript:'+self.conversation_id
 
     def save_message(self, message: Message):
         self.logger.debug(f"Saving transcript for {self.conversation_id}")

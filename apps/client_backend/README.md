@@ -32,3 +32,5 @@ Now you have a client backend hosted at localhost:3000 to pass into the Vocode R
 ```
 uvicorn main:app
 ```
+
+ docker run --env-file=.env -p 3000:3000 --name vocode-client-backend --network mynetwork -d vocode-client-backend
