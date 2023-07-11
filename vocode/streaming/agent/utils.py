@@ -1,9 +1,11 @@
+import logging
 import re
 from typing import AsyncGenerator, AsyncIterable, Callable, List, Optional
 
 from openai.openai_object import OpenAIObject
+from vocode.streaming.models.event_log import Message
 from vocode.streaming.models.events import Sender
-from vocode.streaming.models.transcript import Action, Message, Transcript
+from vocode.streaming.models.transcript import Action, Transcript
 
 SENTENCE_ENDINGS = [".", "!", "?", "\n"]
 
@@ -79,12 +81,16 @@ def get_sentence_from_buffer(buffer: str):
 
 
 def format_openai_chat_messages_from_transcript(
-    transcript: Transcript, prompt_preamble: Optional[str] = None
+    transcript: Transcript, prompt_preamble: Optional[str] = None, logger: Optional[logging.Logger] = None,
 ) -> List[dict]:
     chat_messages = (
         [{"role": "system", "content": prompt_preamble}] if prompt_preamble else []
     )
-    for event_log in transcript.event_logs:
+
+    event_logs = transcript.get_messages()
+    event_logs = sorted(event_logs, key=lambda m: m.timestamp)
+
+    for event_log in event_logs:
         if isinstance(event_log, Message):
             chat_messages.append(
                 {

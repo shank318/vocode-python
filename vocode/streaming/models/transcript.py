@@ -1,29 +1,12 @@
 import time
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 from enum import Enum
+from vocode.data_store.base_data_store import TranscriptDataStore
 from vocode.streaming.models.actions import ActionOutput, ActionType
+from vocode.streaming.models.event_log import EventLog, Message
 from vocode.streaming.models.events import Sender, Event, EventType
-
 from vocode.streaming.utils.events_manager import EventsManager
-
-
-class EventLog(BaseModel):
-    sender: Sender
-    timestamp: float
-
-    def to_string(self, include_timestamp: bool = False) -> str:
-        raise NotImplementedError
-
-
-class Message(EventLog):
-    text: str
-
-    def to_string(self, include_timestamp: bool = False) -> str:
-        if include_timestamp:
-            return f"{self.sender.name}: {self.text} ({self.timestamp})"
-        return f"{self.sender.name}: {self.text}"
-
 
 class Action(EventLog):
     sender: Sender = Sender.ACTION_WORKER
@@ -41,7 +24,9 @@ class Action(EventLog):
 class Transcript(BaseModel):
     event_logs: List[EventLog] = []
     start_time: float = Field(default_factory=time.time)
+    meta_data: Dict[str, str] = {}
     events_manager: Optional[EventsManager] = None
+    data_store: Optional[TranscriptDataStore] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -49,11 +34,25 @@ class Transcript(BaseModel):
     def attach_events_manager(self, events_manager: EventsManager):
         self.events_manager = events_manager
 
+    def add_meta_data(self, key: str, value: str):
+        if self.meta_data is None:
+            self.meta_data = {}
+        self.meta_data[key] = value
+
+    def attach_data_store(self, data_store: TranscriptDataStore):
+        self.data_store = data_store
+
     def to_string(self, include_timestamps: bool = False) -> str:
         return "\n".join(
             event.to_string(include_timestamp=include_timestamps)
             for event in self.event_logs
         )
+
+    def get_messages(self) -> List[Message]:
+        if self.data_store is not None:
+            return self.data_store.get_messages()
+        else:
+            return self.event_logs
 
     def add_message(
         self,
@@ -62,7 +61,14 @@ class Transcript(BaseModel):
         conversation_id: str,
     ):
         timestamp = time.time()
-        self.event_logs.append(Message(text=text, sender=sender, timestamp=timestamp))
+        message = Message(text=text, sender=sender, timestamp=timestamp)
+        message.meta_data = self.meta_data
+        
+        if self.data_store is not None:
+            self.data_store.save_message(message)
+        else:
+            self.event_logs.append(message)
+
         if self.events_manager is not None:
             self.events_manager.publish_event(
                 TranscriptEvent(

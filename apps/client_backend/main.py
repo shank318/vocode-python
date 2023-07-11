@@ -1,5 +1,8 @@
 import logging
+from threading import Thread
+import time
 from fastapi import FastAPI
+from vocode.streaming.agent.base_agent import TranscriptionAgentInput
 
 from vocode.streaming.models.agent import ChatGPTAgentConfig
 from vocode.streaming.models.synthesizer import AzureSynthesizerConfig
@@ -11,6 +14,8 @@ from vocode.streaming.models.message import BaseMessage
 
 from dotenv import load_dotenv
 
+from vocode.streaming.transcriber.base_transcriber import Transcription
+
 load_dotenv()
 
 app = FastAPI(docs_url=None)
@@ -20,12 +25,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 conversation_router = ConversationRouter(
-    agent=ChatGPTAgent(
-        ChatGPTAgentConfig(
-            initial_message=BaseMessage(text="Hello!"),
-            prompt_preamble="Have a pleasant conversation about life",
-        )
-    ),
     synthesizer_thunk=lambda output_audio_config: AzureSynthesizer(
         AzureSynthesizerConfig.from_output_audio_config(
             output_audio_config, voice_name="en-US-SteffanNeural"

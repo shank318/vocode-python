@@ -4,10 +4,11 @@ import asyncio
 import queue
 import random
 import threading
-from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Tuple, TypeVar
 import logging
 import time
 import typing
+from vocode.data_store.base_data_store import TranscriptDataStore
 
 from vocode.streaming.action.worker import ActionsWorker
 from vocode.streaming.agent.action_agent import ActionAgent
@@ -304,9 +305,11 @@ class StreamingConversation(Generic[OutputDeviceType]):
         transcriber: BaseTranscriber[TranscriberConfig],
         agent: BaseAgent,
         synthesizer: BaseSynthesizer,
+        query_params: Dict[str, str],
         conversation_id: Optional[str] = None,
         per_chunk_allowance_seconds: float = PER_CHUNK_ALLOWANCE_SECONDS,
         events_manager: Optional[EventsManager] = None,
+        transcript_data_store: Optional[TranscriptDataStore] = None,
         logger: Optional[logging.Logger] = None,
     ):
         self.id = conversation_id or create_conversation_id()
@@ -315,6 +318,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.transcriber = transcriber
         self.agent = agent
         self.synthesizer = synthesizer
+        self.query_params = query_params
 
         self.interruptible_events: queue.Queue[InterruptibleEvent] = queue.Queue()
         self.interruptible_event_factory = self.QueueingInterruptibleEventFactory(
@@ -361,6 +365,11 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.events_task: Optional[asyncio.Task] = None
         self.per_chunk_allowance_seconds = per_chunk_allowance_seconds
         self.transcript = Transcript()
+        self.transcript.attach_data_store(transcript_data_store)
+
+        # add query params in the metadata
+        self.transcript.meta_data = self.query_params
+
         self.transcript.attach_events_manager(self.events_manager)
         self.bot_sentiment = None
         if self.agent.get_agent_config().track_bot_sentiment:

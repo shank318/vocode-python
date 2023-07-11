@@ -47,7 +47,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
     def get_chat_parameters(self, messages: Optional[List] = None):
         assert self.transcript is not None
         messages = messages or format_openai_chat_messages_from_transcript(
-            self.transcript, self.agent_config.prompt_preamble
+            self.transcript, self.agent_config.prompt_preamble, self.logger,
         )
 
         parameters: Dict[str, Any] = {
@@ -72,7 +72,6 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
             )
             + [{"role": "user", "content": first_prompt}]
         ]
-
         parameters = self.get_chat_parameters(messages)
         return openai.ChatCompletion.create(**parameters)
 

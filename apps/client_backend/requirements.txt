@@ -1,2 +1,3 @@
-vocode==0.1.110
+vocode-0.1.110-py3-none-any.whl
 python-dotenv
+redis
