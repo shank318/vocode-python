@@ -1,8 +1,12 @@
+import asyncio
 import logging
 from typing import Callable, Dict, Optional
 import typing
 
 from fastapi import APIRouter, WebSocket
+from vocode.conversation_recorder.base_recorder import BaseConversationRecorder
+from vocode.conversation_recorder.conversation_recorder import ConversationRecorder
+from vocode.data_store.data_store_factory import DataStoreFactory, DataStoreType
 from vocode.data_store.redis_data_store import RedisTranscriptDataStore
 from vocode.streaming.agent.base_agent import BaseAgent
 from vocode.streaming.agent.chat_gpt_agent import ChatGPTAgent
@@ -41,6 +45,7 @@ from vocode.streaming.utils import events_manager
 class ConversationRouter(BaseRouter):
     def __init__(
         self,
+        data_store_type: DataStoreType,
         transcriber_thunk: Callable[
             [TranscriberConfig], BaseTranscriber
         ] = lambda transcriber_config: DeepgramTranscriber(
@@ -51,12 +56,15 @@ class ConversationRouter(BaseRouter):
         ] = lambda synthesizer_config: AzureSynthesizer(
             synthesizer_config
         ),
+        record: bool = False,
         logger: Optional[logging.Logger] = None,
     ):
         super().__init__()
+        self.data_store_type = data_store_type
         self.transcriber_thunk = transcriber_thunk
         self.synthesizer_thunk = synthesizer_thunk
         self.logger = logger or logging.getLogger(__name__)
+        self.record = record
         self.router = APIRouter()
         self.router.websocket("/conversation")(self.conversation)
 
@@ -76,6 +84,11 @@ class ConversationRouter(BaseRouter):
                 ChatGPTAgentConfig, start_message.agent_config)
         )
 
+        # Create data store
+        data_store_factory = DataStoreFactory()
+        data_store = data_store_factory.create_data_store(
+            start_message.conversation_id, self.data_store_type, self.logger)
+
         return StreamingConversation(
             output_device=output_device,
             transcriber=transcriber,
@@ -83,10 +96,7 @@ class ConversationRouter(BaseRouter):
             synthesizer=synthesizer,
             query_params=query_params,
             conversation_id=start_message.conversation_id,
-            transcript_data_store=RedisTranscriptDataStore(
-                conversation_id=start_message.conversation_id,
-                logger=self.logger,
-            ),
+            transcript_data_store=data_store,
             # events_manager=TranscriptEventManager(
             #     output_device, self.logger) if start_message.subscribe_transcript else None,
             logger=self.logger,
@@ -105,15 +115,23 @@ class ConversationRouter(BaseRouter):
         self.logger.debug(
             f"Conversation started id: {start_message.conversation_id}, query_params: {query_params_str}")
 
+        conversation_recorder: BaseConversationRecorder = None
+        if self.record:
+            conversation_recorder = ConversationRecorder(
+                self.logger, start_message.conversation_id)
+            conversation_recorder.start()
+
         output_device = WebsocketOutputDevice(
             websocket,
             start_message.transcriber_config.sampling_rate,
             start_message.synthesizer_config.audio_encoding,
+            conversation_recorder,
         )
 
         conversation = self.get_conversation(
             output_device, start_message, query_params)
         await conversation.start(lambda: websocket.send_text(ReadyMessage().json()))
+
         while conversation.is_active():
             message: WebSocketMessage = WebSocketMessage.parse_obj(
                 await websocket.receive_json()
@@ -121,9 +139,16 @@ class ConversationRouter(BaseRouter):
             if message.type == WebSocketMessageType.STOP:
                 break
             audio_message = typing.cast(AudioMessage, message)
-            conversation.receive_audio(audio_message.get_bytes())
+            audio_message_bytes = audio_message.get_bytes()
+
+            if conversation_recorder is not None:
+                asyncio.ensure_future(
+                    conversation_recorder.add_data_stream(audio_message_bytes))
+
+            conversation.receive_audio(audio_message_bytes)
         output_device.mark_closed()
         conversation.terminate()
+        conversation_recorder.stop_recording()
 
     def get_router(self) -> APIRouter:
         return self.router

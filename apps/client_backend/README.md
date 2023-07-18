@@ -34,3 +34,5 @@ uvicorn main:app
 ```
 
  docker run --env-file=.env -p 3000:3000 --name vocode-client-backend --network mynetwork -d vocode-client-backend
+
+ docker run --env-file=.env -p 3000:3000 -t vocode-client-backend

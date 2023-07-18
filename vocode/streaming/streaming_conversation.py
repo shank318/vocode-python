@@ -371,6 +371,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.transcript.meta_data = self.query_params
 
         self.transcript.attach_events_manager(self.events_manager)
+
         self.bot_sentiment = None
         if self.agent.get_agent_config().track_bot_sentiment:
             self.sentiment_config = (
