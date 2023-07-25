@@ -67,7 +67,11 @@ class ConversationRouter(BaseRouter):
         self.logger = logger or logging.getLogger(__name__)
         self.record = record
         self.router = APIRouter()
+        self.router.add_api_route("/health", endpoint=self.health_check)
         self.router.websocket("/conversation")(self.conversation)
+
+    async def health_check(self):
+        return {"status": "ok"}        
 
     def get_conversation(
         self,
