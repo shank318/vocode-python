@@ -10,6 +10,7 @@ from vocode.data_store.data_store_factory import DataStoreFactory, DataStoreType
 from vocode.data_store.redis_data_store import RedisTranscriptDataStore
 from vocode.streaming.agent.base_agent import BaseAgent
 from vocode.streaming.agent.chat_gpt_agent import ChatGPTAgent
+from vocode.streaming.client_backend.rooms import RedisRoomProvider
 from vocode.streaming.models.agent import ChatGPTAgentConfig
 from vocode.streaming.models.audio_encoding import AudioEncoding
 from vocode.streaming.models.client_backend import InputAudioConfig, OutputAudioConfig
@@ -78,10 +79,12 @@ class ConversationRouter(BaseRouter):
         synthesizer = self.synthesizer_thunk(start_message.synthesizer_config)
         synthesizer.synthesizer_config.should_encode_as_wav = True
 
+        agent_config = typing.cast(
+            ChatGPTAgentConfig, start_message.agent_config)
+
         self.agent = ChatGPTAgent(
             logger=self.logger,
-            agent_config=typing.cast(
-                ChatGPTAgentConfig, start_message.agent_config)
+            agent_config=agent_config
         )
 
         # Create data store
@@ -108,6 +111,10 @@ class ConversationRouter(BaseRouter):
             await websocket.receive_json()
         )
 
+        room_provider = RedisRoomProvider(
+            self.logger, start_message.conversation_id)
+        room_provider.join_room(websocket)
+
         query_params = dict(websocket.query_params)
 
         query_params_str = ', '.join([f"{key}={value}" for key, value in (
@@ -122,7 +129,7 @@ class ConversationRouter(BaseRouter):
             conversation_recorder.start()
 
         output_device = WebsocketOutputDevice(
-            websocket,
+            room_provider,
             start_message.transcriber_config.sampling_rate,
             start_message.synthesizer_config.audio_encoding,
             conversation_recorder,
@@ -148,7 +155,9 @@ class ConversationRouter(BaseRouter):
             conversation.receive_audio(audio_message_bytes)
         output_device.mark_closed()
         conversation.terminate()
-        conversation_recorder.stop_recording()
+        room_provider.terminate()
+        if conversation_recorder is not None:
+            conversation_recorder.stop_recording()
 
     def get_router(self) -> APIRouter:
         return self.router

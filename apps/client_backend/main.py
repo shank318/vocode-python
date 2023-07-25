@@ -23,7 +23,7 @@ conversation_router = ConversationRouter(
     ),
     data_store_type=DataStoreType.REDIS,
     logger=logger,
-    record=True,
+    record=False,
 )
 
 app.include_router(conversation_router.get_router())
