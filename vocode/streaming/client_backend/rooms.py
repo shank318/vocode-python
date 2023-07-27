@@ -47,19 +47,27 @@ class RedisRoomProvider(BaseRoomsProvider):
                         await websocket.send_text(message['data'])
 
                     if self.disconnect is True:
-                        self.logger.debug(f'Disconnected redis pubsub')
+                        self.logger.debug(f'Disconnected pubsub {self.room_id}')
                         break
                 except asyncio.TimeoutError as e:
                     self.logger.debug(f'Pubsub timeout received.. {e}')
+                    break
                 except Exception as e:
                     self.logger.debug(f'Pubsub exception.. {e}')
+                    break
+                except asyncio.CancelledError:
+                    self.logger.debug(f'Cancelled.. {e}')
+                    break
+
 
         async with psub as p:
             await p.subscribe(self.room_id)
             await reader(p)  # wait for reader to complete
+            self.logger.debug(f'unsubscribing from the room: {self.room_id}')
             await p.unsubscribe(self.room_id)
 
         # closing all open connections
+        self.logger.debug(f'closing all open connections: {self.room_id}')
         await psub.close()
 
     async def publish(self, data):

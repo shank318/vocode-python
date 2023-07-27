@@ -3,7 +3,7 @@ import logging
 from typing import Callable, Dict, Optional
 import typing
 
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from vocode.conversation_recorder.base_recorder import BaseConversationRecorder
 from vocode.conversation_recorder.conversation_recorder import ConversationRecorder
 from vocode.data_store.data_store_factory import DataStoreFactory, DataStoreType
@@ -71,7 +71,7 @@ class ConversationRouter(BaseRouter):
         self.router.websocket("/conversation")(self.conversation)
 
     async def health_check(self):
-        return {"status": "ok"}        
+        return {"status": "ok"}
 
     def get_conversation(
         self,
@@ -143,25 +143,32 @@ class ConversationRouter(BaseRouter):
             output_device, start_message, query_params)
         await conversation.start(lambda: websocket.send_text(ReadyMessage().json()))
 
-        while conversation.is_active():
-            message: WebSocketMessage = WebSocketMessage.parse_obj(
-                await websocket.receive_json()
-            )
-            if message.type == WebSocketMessageType.STOP:
-                break
-            audio_message = typing.cast(AudioMessage, message)
-            audio_message_bytes = audio_message.get_bytes()
+        try:
+            while conversation.is_active():
+                message: WebSocketMessage = WebSocketMessage.parse_obj(
+                    await websocket.receive_json()
+                )
+                if message.type == WebSocketMessageType.STOP:
+                    self.logger.debug(
+                        f"STOP message received for the conversation: {start_message.conversation_id}")
+                    await websocket.close()
+                    raise WebSocketDisconnect
+                audio_message = typing.cast(AudioMessage, message)
+                audio_message_bytes = audio_message.get_bytes()
 
+                if conversation_recorder is not None:
+                    asyncio.ensure_future(
+                        conversation_recorder.add_data_stream(audio_message_bytes))
+
+                conversation.receive_audio(audio_message_bytes)
+        except WebSocketDisconnect:
+            self.logger.debug(
+                f"disconnecting ws for the conversation: {start_message.conversation_id}...")
+            room_provider.terminate()
+            output_device.mark_closed()
+            conversation.terminate()
             if conversation_recorder is not None:
-                asyncio.ensure_future(
-                    conversation_recorder.add_data_stream(audio_message_bytes))
-
-            conversation.receive_audio(audio_message_bytes)
-        output_device.mark_closed()
-        conversation.terminate()
-        room_provider.terminate()
-        if conversation_recorder is not None:
-            conversation_recorder.stop_recording()
+                conversation_recorder.stop_recording()
 
     def get_router(self) -> APIRouter:
         return self.router
