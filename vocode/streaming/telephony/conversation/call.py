@@ -23,11 +23,8 @@ from vocode.streaming.telephony.constants import DEFAULT_SAMPLING_RATE
 from vocode.streaming.streaming_conversation import StreamingConversation
 from vocode.streaming.transcriber.factory import TranscriberFactory
 from vocode.streaming.utils.events_manager import EventsManager
-
-
-class PhoneCallAction(Enum):
-    CLOSE_WEBSOCKET = 1
-
+from vocode.streaming.utils.conversation_logger_adapter import wrap_logger
+from vocode.streaming.utils import create_conversation_id
 
 TelephonyOutputDeviceType = TypeVar(
     "TelephonyOutputDeviceType", bound=Union[TwilioOutputDevice, VonageOutputDevice]
@@ -52,6 +49,12 @@ class Call(StreamingConversation[TelephonyOutputDeviceType]):
         events_manager: Optional[EventsManager] = None,
         logger: Optional[logging.Logger] = None,
     ):
+        conversation_id = conversation_id or create_conversation_id()
+        logger = wrap_logger(
+            logger or logging.getLogger(__name__),
+            conversation_id=conversation_id,
+        )
+
         self.from_phone = from_phone
         self.to_phone = to_phone
         self.base_url = base_url
@@ -75,10 +78,6 @@ class Call(StreamingConversation[TelephonyOutputDeviceType]):
     async def attach_ws_and_start(self, ws: WebSocket):
         raise NotImplementedError
 
-    def mark_terminated(self):
-        super().mark_terminated()
-        self.config_manager.delete_config(self.id)
-
-    def tear_down(self):
+    async def tear_down(self):
         self.events_manager.publish_event(PhoneCallEndedEvent(conversation_id=self.id))
-        self.terminate()
+        await self.terminate()

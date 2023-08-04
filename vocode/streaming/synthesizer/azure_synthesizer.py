@@ -5,6 +5,7 @@ import os
 import re
 from typing import Any, List, Optional, Tuple
 from xml.etree import ElementTree
+import aiohttp
 from vocode import getenv
 from opentelemetry.context.context import Context
 
@@ -62,8 +63,9 @@ class AzureSynthesizer(BaseSynthesizer[AzureSynthesizerConfig]):
         logger: Optional[logging.Logger] = None,
         azure_speech_key: Optional[str] = None,
         azure_speech_region: Optional[str] = None,
+        aiohttp_session: Optional[aiohttp.ClientSession] = None,
     ):
-        super().__init__(synthesizer_config)
+        super().__init__(synthesizer_config, aiohttp_session)
         # Instantiates a client
         azure_speech_key = azure_speech_key or getenv("AZURE_SPEECH_KEY")
         azure_speech_region = azure_speech_region or getenv("AZURE_SPEECH_REGION")
@@ -182,6 +184,16 @@ class AzureSynthesizer(BaseSynthesizer[AzureSynthesizerConfig]):
                 "styledegree", str(bot_sentiment.degree * 2)
             )  # Azure specific, it's a scale of 0-2
             voice_root = styled
+        # this ugly hack is necessary so we can limit the gap between sentences
+        # for normal sentences, it seems like the gap is > 500ms, so we're able to reduce it to 500ms
+        # for very tiny sentences, the API hangs - so we heuristically only update the silence gap
+        # if there is more than one word in the sentence
+        if " " in message:
+            silence = ElementTree.SubElement(
+                voice_root, "{%s}silence" % NAMESPACES.get("mstts")
+            )
+            silence.set("value", "500ms")
+            silence.set("type", "Tailing-exact")
         prosody = ElementTree.SubElement(voice_root, "prosody")
         prosody.set("pitch", f"{self.pitch}%")
         prosody.set("rate", f"{self.rate}%")
@@ -220,6 +232,15 @@ class AzureSynthesizer(BaseSynthesizer[AzureSynthesizerConfig]):
         # offset = int(self.OFFSET_MS * (self.synthesizer_config.sampling_rate / 1000))
         offset = 0
         self.logger.debug(f"Synthesizing message: {message}")
+
+        # Azure will return no audio for certain strings like "-", "[-", and "!"
+        # which causes the `chunk_generator` below to hang. Return an empty
+        # generator for these cases.
+        if not re.search(r"\w", message.text):
+            return SynthesisResult(
+                self.empty_generator(),
+                lambda _: message.text,
+            )
 
         async def chunk_generator(
             audio_data_stream: speechsdk.AudioDataStream, chunk_transform=lambda x: x

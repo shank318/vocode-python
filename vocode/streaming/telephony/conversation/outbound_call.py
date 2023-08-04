@@ -43,6 +43,7 @@ class OutboundCall:
         digits: Optional[
             str
         ] = None,  # Keys to press when the call connects, see send_digits https://www.twilio.com/docs/voice/api/call-resource#create-a-call-resource
+        output_to_speaker: bool = False,
     ):
         self.base_url = base_url
         self.to_phone = to_phone
@@ -64,9 +65,13 @@ class OutboundCall:
                 auth_token=getenv("TWILIO_AUTH_TOKEN"),
             )
         self.telephony_client = self.create_telephony_client()
+        assert not output_to_speaker or isinstance(
+            self.telephony_client, VonageClient
+        ), "Output to speaker is only supported for Vonage calls"
         self.transcriber_config = self.create_transcriber_config(transcriber_config)
         self.synthesizer_config = self.create_synthesizer_config(synthesizer_config)
         self.telephony_id = None
+        self.output_to_speaker = output_to_speaker
 
     def create_telephony_client(self) -> BaseTelephonyClient:
         if self.twilio_config is not None:
@@ -104,14 +109,14 @@ class OutboundCall:
         else:
             raise ValueError("No telephony config provided")
 
-    def start(self):
+    async def start(self):
         self.logger.debug("Starting outbound call")
         self.telephony_client.validate_outbound_call(
             to_phone=self.to_phone,
             from_phone=self.from_phone,
             mobile_only=self.mobile_only,
         )
-        self.telephony_id = self.telephony_client.create_call(
+        self.telephony_id = await self.telephony_client.create_call(
             conversation_id=self.conversation_id,
             to_phone=self.to_phone,
             from_phone=self.from_phone,
@@ -137,10 +142,11 @@ class OutboundCall:
                 vonage_uuid=self.telephony_id,
                 from_phone=self.from_phone,
                 to_phone=self.to_phone,
+                output_to_speaker=self.output_to_speaker,
             )
         else:
             raise ValueError("Unknown telephony client")
-        self.config_manager.save_config(self.conversation_id, call_config)
+        await self.config_manager.save_config(self.conversation_id, call_config)
 
-    def end(self):
-        return self.telephony_client.end_call(self.telephony_id)
+    async def end(self):
+        return await self.telephony_client.end_call(self.telephony_id)

@@ -23,7 +23,7 @@ class RedisRoomProvider(BaseRoomsProvider):
         self.loop = asyncio.get_event_loop()
         self.room_id = f"channel:room:{room_id}"
         self.disconnect = False
-        redis_host = os.environ.get("REDIS_HOST", "redis-container")
+        redis_host = os.environ.get("REDIS_HOST", "localhost:6379")
         self.redis_pool = aioredis.from_url(
             f"redis://{redis_host}", max_connections=10, encoding="utf-8", decode_responses=True)
 

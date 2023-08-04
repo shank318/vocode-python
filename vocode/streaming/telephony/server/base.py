@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, Request, Response
 from pydantic import BaseModel, Field
 from vocode.streaming.agent.factory import AgentFactory
 from vocode.streaming.models.agent import AgentConfig
+from vocode.streaming.models.events import RecordingEvent
 from vocode.streaming.models.synthesizer import SynthesizerConfig
 from vocode.streaming.models.transcriber import TranscriberConfig
 from vocode.streaming.synthesizer.factory import SynthesizerFactory
@@ -95,17 +96,26 @@ class TelephonyServer:
                 methods=["POST"],
             )
         # vonage requires an events endpoint
-        self.router.add_api_route("/events", self.events, methods=["GET"])
+        self.router.add_api_route("/events", self.events, methods=["GET", "POST"])
         self.logger.info(f"Set up events endpoint at https://{self.base_url}/events")
 
+        self.router.add_api_route("/recordings/{conversation_id}", self.recordings, methods=["GET", "POST"])
+        self.logger.info(f"Set up recordings endpoint at https://{self.base_url}/recordings/{{conversation_id}}")
+ 
     def events(self, request: Request):
-        return lambda: Response()
+        return Response()
+
+    async def recordings(self, request: Request, conversation_id: str):
+        recording_url = (await request.json())["recording_url"]
+        if self.events_manager is not None and recording_url is not None:
+            self.events_manager.publish_event(RecordingEvent(recording_url=recording_url, conversation_id=conversation_id))
+        return Response()
 
     def create_inbound_route(
         self,
         inbound_call_config: AbstractInboundCallConfig,
     ):
-        def twilio_route(
+        async def twilio_route(
             twilio_config: TwilioConfig,
             twilio_sid: str = Form(alias="CallSid"),
             twilio_from: str = Form(alias="From"),
@@ -124,12 +134,12 @@ class TelephonyServer:
             )
 
             conversation_id = create_conversation_id()
-            self.config_manager.save_config(conversation_id, call_config)
+            await self.config_manager.save_config(conversation_id, call_config)
             return self.templater.get_connection_twiml(
                 base_url=self.base_url, call_id=conversation_id
             )
 
-        def vonage_route(
+        async def vonage_route(
             vonage_config: VonageConfig, vonage_answer_request: VonageAnswerRequest
         ):
             call_config = VonageCallConfig(
@@ -144,9 +154,9 @@ class TelephonyServer:
                 from_phone=vonage_answer_request.to,
             )
             conversation_id = create_conversation_id()
-            self.config_manager.save_config(conversation_id, call_config)
+            await self.config_manager.save_config(conversation_id, call_config)
             return VonageClient.create_call_ncco(
-                base_url=self.base_url, conversation_id=conversation_id
+                base_url=self.base_url, conversation_id=conversation_id, record=vonage_config.record
             )
 
         if isinstance(inbound_call_config, TwilioInboundCallConfig):
@@ -166,7 +176,7 @@ class TelephonyServer:
 
     async def end_outbound_call(self, conversation_id: str):
         # TODO validation via twilio_client
-        call_config = self.config_manager.get_config(conversation_id)
+        call_config = await self.config_manager.get_config(conversation_id)
         if not call_config:
             raise ValueError(f"Could not find call config for {conversation_id}")
         telephony_client: BaseTelephonyClient
@@ -174,12 +184,12 @@ class TelephonyServer:
             telephony_client = TwilioClient(
                 base_url=self.base_url, twilio_config=call_config.twilio_config
             )
-            telephony_client.end_call(call_config.twilio_sid)
+            await telephony_client.end_call(call_config.twilio_sid)
         elif isinstance(call_config, VonageCallConfig):
             telephony_client = VonageClient(
                 base_url=self.base_url, vonage_config=call_config.vonage_config
             )
-            telephony_client.end_call(call_config.vonage_uuid)
+            await telephony_client.end_call(call_config.vonage_uuid)
         return {"id": conversation_id}
 
     def get_router(self) -> APIRouter:

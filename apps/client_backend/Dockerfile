@@ -1,11 +1,11 @@
-FROM --platform=linux/amd64 python:3.9-slim-bullseye
+FROM --platform=linux/amd64 python:3.9-bullseye
 
 # get portaudio and ffmpeg
-RUN apt-get update \
-        && apt-get install build-essential libssl-dev ca-certificates libasound2 wget libportaudio2 libportaudiocpp0 portaudio19-dev libasound-dev libsndfile1-dev -y
+# RUN apt-get update \
+#         && apt-get install build-essential libssl-dev ca-certificates libasound2 wget libportaudio2 libportaudiocpp0 portaudio19-dev libasound-dev libsndfile1-dev -y
 RUN apt-get -y update
 RUN apt-get -y upgrade
-RUN apt-get install -y ffmpeg
+#RUN apt-get install -y ffmpeg
 
 WORKDIR /code
 COPY /dist/vocode-0.1.110-py3-none-any.whl /code/vocode-0.1.110-py3-none-any.whl

@@ -1,29 +1,76 @@
 import asyncio
 import typing
-import argparse
 from dotenv import load_dotenv
 from playground.streaming.tracing_utils import make_parser_and_maybe_trace
+from pydantic import BaseModel
+from vocode.streaming.action.base_action import BaseAction
+from vocode.streaming.action.factory import ActionFactory
 from vocode.streaming.action.worker import ActionsWorker
-from vocode.streaming.agent.action_agent import ActionAgent
-from vocode.streaming.models.actions import ActionType
+from vocode.streaming.models.actions import (
+    ActionConfig,
+    ActionInput,
+    ActionOutput,
+    ActionType,
+)
+from vocode.streaming.models.agent import ChatGPTAgentConfig
 from vocode.streaming.models.transcript import Transcript
+from vocode.streaming.utils.state_manager import ConversationStateManager
 
 load_dotenv()
 
 from vocode.streaming.agent import *
 from vocode.streaming.agent.base_agent import (
-    AgentInput,
+    BaseAgent,
     AgentResponseMessage,
     AgentResponseType,
     TranscriptionAgentInput,
 )
-from vocode.streaming.models.agent import (
-    ActionAgentConfig,
-    ChatGPTAgentConfig,
-    FillerAudioConfig,
-)
+
 from vocode.streaming.transcriber.base_transcriber import Transcription
 from vocode.streaming.utils import create_conversation_id
+
+
+class ShoutActionConfig(ActionConfig, type="shout"):
+    num_exclamation_marks: int
+
+
+class ShoutActionParameters(BaseModel):
+    name: str
+
+
+class ShoutActionResponse(BaseModel):
+    success: bool
+
+
+class ShoutAction(
+    BaseAction[ShoutActionConfig, ShoutActionParameters, ShoutActionResponse]
+):
+    description: str = "Shouts someone's name"
+    parameters_type: typing.Type[ShoutActionParameters] = ShoutActionParameters
+    response_type: typing.Type[ShoutActionResponse] = ShoutActionResponse
+
+    async def run(
+        self, action_input: ActionInput[ShoutActionParameters]
+    ) -> ActionOutput[ShoutActionResponse]:
+        print(
+            f"HI THERE {action_input.params.name}{self.action_config.num_exclamation_marks * '!'}"
+        )
+        return ActionOutput(
+            action_type=self.action_config.type,
+            response=ShoutActionResponse(success=True),
+        )
+
+
+class ShoutActionFactory(ActionFactory):
+    def create_action(self, action_config: ActionConfig) -> BaseAction:
+        if isinstance(action_config, ShoutActionConfig):
+            return ShoutAction(action_config, should_respond=True)
+        else:
+            raise Exception("Invalid action type")
+
+
+class DummyConversationManager(ConversationStateManager):
+    pass
 
 
 async def run_agent(agent: BaseAgent):
@@ -62,7 +109,7 @@ async def run_agent(agent: BaseAgent):
                     None, lambda: input("Human: ")
                 )
                 agent.consume_nonblocking(
-                    agent.interruptible_event_factory.create(
+                    agent.interruptible_event_factory.create_interruptible_event(
                         TranscriptionAgentInput(
                             transcription=Transcription(
                                 message=message, confidence=1.0, is_final=True
@@ -75,11 +122,14 @@ async def run_agent(agent: BaseAgent):
                 break
 
     actions_worker = None
-    if isinstance(agent, ActionAgent):
+    if isinstance(agent, ChatGPTAgent):
         actions_worker = ActionsWorker(
             input_queue=agent.actions_queue,
             output_queue=agent.get_input_queue(),
             action_factory=agent.action_factory,
+        )
+        actions_worker.attach_conversation_state_manager(
+            agent.conversation_state_manager
         )
         actions_worker.start()
 
@@ -93,12 +143,14 @@ async def agent_main():
     # Replace with your agent!
     agent = ChatGPTAgent(
         ChatGPTAgentConfig(
-            prompt_preamble="The assistant is having a pleasant conversation about life.",
-            end_conversation_on_goodbye=True,
-            generate_responses=True,
-        )
+            prompt_preamble="have a conversation",
+            actions=[
+                ShoutActionConfig(num_exclamation_marks=3),
+            ],
+        ),
+        action_factory=ShoutActionFactory(),
     )
-
+    agent.attach_conversation_state_manager(DummyConversationManager(conversation=None))
     agent.attach_transcript(transcript)
     agent.start()
 

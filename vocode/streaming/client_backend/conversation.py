@@ -42,11 +42,14 @@ from vocode.streaming.models.events import Event, EventType
 from vocode.streaming.models.transcript import TranscriptEvent
 from vocode.streaming.utils import events_manager
 
+BASE_CONVERSATION_ENDPOINT = "/conversation"
+
 
 class ConversationRouter(BaseRouter):
     def __init__(
         self,
         data_store_type: DataStoreType,
+        agent_thunk: Callable[[], BaseAgent],
         transcriber_thunk: Callable[
             [TranscriberConfig], BaseTranscriber
         ] = lambda transcriber_config: DeepgramTranscriber(
@@ -59,16 +62,18 @@ class ConversationRouter(BaseRouter):
         ),
         record: bool = False,
         logger: Optional[logging.Logger] = None,
+        conversation_endpoint: str = BASE_CONVERSATION_ENDPOINT,
     ):
         super().__init__()
         self.data_store_type = data_store_type
         self.transcriber_thunk = transcriber_thunk
+        self.agent_thunk = agent_thunk
         self.synthesizer_thunk = synthesizer_thunk
         self.logger = logger or logging.getLogger(__name__)
         self.record = record
         self.router = APIRouter()
         self.router.add_api_route("/health", endpoint=self.health_check)
-        self.router.websocket("/conversation")(self.conversation)
+        self.router.websocket(conversation_endpoint)(self.conversation)
 
     async def health_check(self):
         return {"status": "ok"}
@@ -86,7 +91,8 @@ class ConversationRouter(BaseRouter):
         agent_config = typing.cast(
             ChatGPTAgentConfig, start_message.agent_config)
 
-        self.agent = ChatGPTAgent(
+        # Override it with the agent config received from the start message
+        self.agent_thunk = ChatGPTAgent(
             logger=self.logger,
             agent_config=agent_config
         )
@@ -99,7 +105,7 @@ class ConversationRouter(BaseRouter):
         return StreamingConversation(
             output_device=output_device,
             transcriber=transcriber,
-            agent=self.agent,
+            agent=self.agent_thunk(),
             synthesizer=synthesizer,
             query_params=query_params,
             conversation_id=start_message.conversation_id,
@@ -166,7 +172,7 @@ class ConversationRouter(BaseRouter):
                 f"disconnecting ws for the conversation: {start_message.conversation_id}...")
             room_provider.terminate()
             output_device.mark_closed()
-            conversation.terminate()
+            await conversation.terminate()
             if conversation_recorder is not None:
                 conversation_recorder.stop_recording()
 
@@ -175,7 +181,11 @@ class ConversationRouter(BaseRouter):
 
 
 class TranscriptEventManager(events_manager.EventsManager):
-    def __init__(self, output_device: WebsocketOutputDevice, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        output_device: WebsocketOutputDevice,
+        logger: Optional[logging.Logger] = None,
+    ):
         super().__init__(subscriptions=[EventType.TRANSCRIPT])
         self.output_device = output_device
         self.logger = logger or logging.getLogger(__name__)

@@ -101,7 +101,10 @@ async def main():
     (
         microphone_input,
         speaker_output,
-    ) = create_streaming_microphone_input_and_speaker_output(use_default_devices=False)
+    ) = create_streaming_microphone_input_and_speaker_output(
+        use_default_devices=False,
+        logger=logger,
+    )
 
     conversation = StreamingConversation(
         output_device=speaker_output,
@@ -124,7 +127,9 @@ async def main():
     )
     await conversation.start()
     print("Conversation started, press Ctrl+C to end")
-    signal.signal(signal.SIGINT, lambda _0, _1: conversation.terminate())
+    signal.signal(
+        signal.SIGINT, lambda _0, _1: asyncio.create_task(conversation.terminate())
+    )
     while conversation.is_active():
         chunk = await microphone_input.get_audio()
         conversation.receive_audio(chunk)

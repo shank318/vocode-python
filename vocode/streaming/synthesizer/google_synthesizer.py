@@ -5,6 +5,7 @@ import logging
 import os
 import wave
 from typing import Any, Optional
+import aiohttp
 
 from vocode import getenv
 
@@ -24,26 +25,22 @@ from opentelemetry.context.context import Context
 
 
 class GoogleSynthesizer(BaseSynthesizer[GoogleSynthesizerConfig]):
-    OFFSET_SECONDS = 0.5
-
     def __init__(
         self,
         synthesizer_config: GoogleSynthesizerConfig,
         logger: Optional[logging.Logger] = None,
+        aiohttp_session: Optional[aiohttp.ClientSession] = None,
     ):
-        super().__init__(synthesizer_config)
+        super().__init__(synthesizer_config, aiohttp_session)
 
         from google.cloud import texttospeech_v1beta1 as tts
+        import google.auth
+
+        google.auth.default()
 
         self.tts = tts
 
         # Instantiates a client
-        credentials_path = getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if not credentials_path:
-            raise Exception(
-                "Please set GOOGLE_APPLICATION_CREDENTIALS environment variable"
-            )
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
         self.client = tts.TextToSpeechClient()
 
         # Build the voice request, select the language code ("en-US") and the ssml
@@ -100,14 +97,12 @@ class GoogleSynthesizer(BaseSynthesizer[GoogleSynthesizerConfig]):
         )
         output_sample_rate = response.audio_config.sample_rate_hertz
 
-        real_offset = int(GoogleSynthesizer.OFFSET_SECONDS * output_sample_rate)
-
         output_bytes_io = io.BytesIO()
         in_memory_wav = wave.open(output_bytes_io, "wb")
         in_memory_wav.setnchannels(1)
         in_memory_wav.setsampwidth(2)
         in_memory_wav.setframerate(output_sample_rate)
-        in_memory_wav.writeframes(response.audio_content[real_offset:-real_offset])
+        in_memory_wav.writeframes(response.audio_content)
         output_bytes_io.seek(0)
 
         result = self.create_synthesis_result_from_wav(

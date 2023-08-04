@@ -1,49 +1,82 @@
 import logging
 import re
-from typing import AsyncGenerator, AsyncIterable, Callable, List, Optional
+from typing import (
+    Dict,
+    Any,
+    AsyncGenerator,
+    AsyncIterable,
+    Callable,
+    List,
+    Literal,
+    Optional,
+    TypeVar,
+    Union,
+)
 
 from openai.openai_object import OpenAIObject
+<<<<<<< HEAD
 from vocode.streaming.models.event_log import Message
 from vocode.streaming.models.events import Sender
 from vocode.streaming.models.transcript import Action, Transcript
+=======
+from vocode.streaming.models.actions import FunctionCall, FunctionFragment
+from vocode.streaming.models.events import Sender
+from vocode.streaming.models.transcript import (
+    ActionFinish,
+    ActionStart,
+    Message,
+    Transcript,
+)
+>>>>>>> main
 
 SENTENCE_ENDINGS = [".", "!", "?", "\n"]
 
 
-def _sent_tokenize(text: str, sentence_endings: List[str]) -> List[str]:
-    sentence_endings = [e for e in sentence_endings if e != "."]
-    sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
-
-    # Replace sentence endings with a unique marker
-    text = re.sub(f"([{sentence_endings_pattern}])", r"\1<END>", text)
-
-    sentences = text.split("<END>")
-
-    # Additional logic to handle numbered list items
-    combined_sentences = []
-    buffer = ""
-    for sentence in sentences:
-        # If the sentence starts with a number and a space, it's part of a list
-        if re.match(r"^\d+ ", sentence):
-            buffer += sentence + " "
-        else:
-            if buffer:
-                # Add the current buffer to combined_sentences and start a new buffer
-                combined_sentences.append(buffer.strip())
-                buffer = ""
-            combined_sentences.append(sentence)
-    if buffer:
-        combined_sentences.append(buffer.strip())
-
-    return combined_sentences
-
-
-async def stream_openai_response_async(
-    gen: AsyncIterable[OpenAIObject],
-    get_text: Callable[[dict], str],
+async def collate_response_async(
+    gen: AsyncIterable[Union[str, FunctionFragment]],
     sentence_endings: List[str] = SENTENCE_ENDINGS,
-) -> AsyncGenerator:
+    get_functions: Literal[True, False] = False,
+) -> AsyncGenerator[Union[str, FunctionCall], None]:
+    sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
+    list_item_ending_pattern = r"\n"
     buffer = ""
+    function_name_buffer = ""
+    function_args_buffer = ""
+    prev_ends_with_money = False
+    async for token in gen:
+        if not token:
+            continue
+        if isinstance(token, str):
+            if prev_ends_with_money and token.startswith(" "):
+                yield buffer.strip()
+                buffer = ""
+
+            buffer += token
+            possible_list_item = bool(re.match(r"^\d+[ .]", buffer))
+            ends_with_money = bool(re.findall(r"\$\d+.$", buffer))
+            if re.findall(
+                list_item_ending_pattern
+                if possible_list_item
+                else sentence_endings_pattern,
+                token,
+            ):
+                if not ends_with_money:
+                    to_return = buffer.strip()
+                    if to_return:
+                        yield to_return
+                    buffer = ""
+            prev_ends_with_money = ends_with_money
+        elif isinstance(token, FunctionFragment):
+            function_name_buffer += token.name
+            function_args_buffer += token.arguments
+    to_return = buffer.strip()
+    if to_return:
+        yield to_return
+    if function_name_buffer and get_functions:
+        yield FunctionCall(name=function_name_buffer, arguments=function_args_buffer)
+
+
+async def openai_get_tokens(gen) -> AsyncGenerator[Union[str, FunctionFragment], None]:
     async for event in gen:
         choices = event.get("choices", [])
         if len(choices) == 0:
@@ -51,18 +84,22 @@ async def stream_openai_response_async(
         choice = choices[0]
         if choice.finish_reason:
             break
-        token = get_text(choice)
-        if not token:
-            continue
-        buffer += token
-
-        sentences = _sent_tokenize(buffer, sentence_endings)
-        for sentence in sentences[:-1]:
-            if sentence.strip():
-                yield sentence.strip()
-        buffer = sentences[-1]
-    if buffer.strip():
-        yield buffer
+        delta = choice.get("delta", {})
+        if "text" in delta and delta["text"] is not None:
+            token = delta["text"]
+            yield token
+        if "content" in delta and delta["content"] is not None:
+            token = delta["content"]
+            yield token
+        elif "function_call" in delta and delta["function_call"] is not None:
+            yield FunctionFragment(
+                name=delta["function_call"]["name"]
+                if "name" in delta["function_call"]
+                else "",
+                arguments=delta["function_call"]["arguments"]
+                if "arguments" in delta["function_call"]
+                else "",
+            )
 
 
 def find_last_punctuation(buffer: str) -> Optional[int]:
@@ -83,7 +120,7 @@ def get_sentence_from_buffer(buffer: str):
 def format_openai_chat_messages_from_transcript(
     transcript: Transcript, prompt_preamble: Optional[str] = None, logger: Optional[logging.Logger] = None,
 ) -> List[dict]:
-    chat_messages = (
+    chat_messages: List[Dict[str, Optional[Any]]] = (
         [{"role": "system", "content": prompt_preamble}] if prompt_preamble else []
     )
 
@@ -98,8 +135,27 @@ def format_openai_chat_messages_from_transcript(
                     "content": event_log.text,
                 }
             )
-        elif isinstance(event_log, Action):
+        elif isinstance(event_log, ActionStart):
             chat_messages.append(
-                {"role": "action_worker", "content": str(event_log.action_output)}
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "function_call": {
+                        "name": event_log.action_type,
+                        "arguments": event_log.action_input.params.json(),
+                    },
+                }
+            )
+        elif isinstance(event_log, ActionFinish):
+            chat_messages.append(
+                {
+                    "role": "function",
+                    "name": event_log.action_type,
+                    "content": event_log.action_output.response.json(),
+                }
             )
     return chat_messages
+
+
+def vector_db_result_to_openai_chat_message(vector_db_result):
+    return {"role": "user", "content": vector_db_result}

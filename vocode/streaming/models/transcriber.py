@@ -13,6 +13,8 @@ from vocode.streaming.telephony.constants import (
 from .audio_encoding import AudioEncoding
 from .model import TypedModel
 
+AZURE_DEFAULT_LANGUAGE = "en-US"
+
 
 class TranscriberType(str, Enum):
     BASE = "transcriber_base"
@@ -22,6 +24,7 @@ class TranscriberType(str, Enum):
     WHISPER_CPP = "transcriber_whisper_cpp"
     REV_AI = "transcriber_rev_ai"
     AZURE = "transcriber_azure"
+    GLADIA = "transcriber_gladia"
 
 
 class EndpointingType(str, Enum):
@@ -108,13 +111,18 @@ class DeepgramTranscriberConfig(TranscriberConfig, type=TranscriberType.DEEPGRAM
     keywords: Optional[list] = None
 
 
+class GladiaTranscriberConfig(TranscriberConfig, type=TranscriberType.GLADIA.value):
+    buffer_size_seconds: float = 0.1
+
+
 class GoogleTranscriberConfig(TranscriberConfig, type=TranscriberType.GOOGLE.value):
     model: Optional[str] = None
     language_code: str = "en-US"
 
 
 class AzureTranscriberConfig(TranscriberConfig, type=TranscriberType.AZURE.value):
-    pass
+    language: str = AZURE_DEFAULT_LANGUAGE
+    candidate_languages: Optional[List[str]] = None
 
 
 class AssemblyAITranscriberConfig(
