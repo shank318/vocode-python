@@ -104,8 +104,8 @@ class ConversationRouter(BaseRouter):
             query_params=query_params,
             conversation_id=start_message.conversation_id,
             transcript_data_store=data_store,
-            # events_manager=TranscriptEventManager(
-            #     output_device, self.logger) if start_message.subscribe_transcript else None,
+            events_manager=TranscriptEventManager(
+                output_device, self.logger) if start_message.subscribe_transcript else None,
             logger=self.logger,
         )
 

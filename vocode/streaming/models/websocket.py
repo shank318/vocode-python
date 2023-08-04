@@ -52,6 +52,7 @@ class StartMessage(WebSocketMessage, type=WebSocketMessageType.START):
     agent_config: AgentConfig
     synthesizer_config: SynthesizerConfig
     conversation_id: Optional[str] = None
+    subscribe_transcript: Optional[bool] = None
 
 
 class AudioConfigStartMessage(
