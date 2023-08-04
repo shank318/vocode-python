@@ -40,14 +40,15 @@ class RedisRoomProvider(BaseRoomsProvider):
         async def reader(channel: aioredis.client.PubSub):
             while True:
                 try:
-                    message = await channel.get_message(ignore_subscribe_messages=True)
+                    message = await channel.get_message(ignore_subscribe_messages=True, timeout=None)
                     if message is not None:
                         self.logger.debug(
                             f'Sending the data to all members in the room: {self.room_id}')
                         await websocket.send_text(message['data'])
 
                     if self.disconnect is True:
-                        self.logger.debug(f'Disconnected pubsub {self.room_id}')
+                        self.logger.debug(
+                            f'Disconnected pubsub {self.room_id}')
                         break
                 except asyncio.TimeoutError as e:
                     self.logger.debug(f'Pubsub timeout received.. {e}')
@@ -58,7 +59,6 @@ class RedisRoomProvider(BaseRoomsProvider):
                 except asyncio.CancelledError:
                     self.logger.debug(f'Cancelled.. {e}')
                     break
-
 
         async with psub as p:
             await p.subscribe(self.room_id)
