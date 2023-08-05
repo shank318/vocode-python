@@ -4,11 +4,7 @@ import asyncio
 import queue
 import random
 import threading
-<<<<<<< HEAD
-from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Tuple, TypeVar
-=======
-from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar, cast
->>>>>>> main
+from typing import Any, Awaitable, Callable, Dict, Generic, Optional, Tuple, TypeVar, cast
 import logging
 import time
 import typing
@@ -379,11 +375,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.transcriber = transcriber
         self.agent = agent
         self.synthesizer = synthesizer
-<<<<<<< HEAD
         self.query_params = query_params
-=======
         self.synthesis_enabled = True
->>>>>>> main
 
         self.interruptible_events: queue.Queue[InterruptibleEvent] = queue.Queue()
         self.interruptible_event_factory = self.QueueingInterruptibleEventFactory(

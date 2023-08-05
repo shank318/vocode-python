@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 python:3.9-bullseye
+FROM --platform=linux/amd64 python:3.9-slim-bullseye
 
 # get portaudio and ffmpeg
 # RUN apt-get update \
@@ -8,7 +8,7 @@ RUN apt-get -y upgrade
 #RUN apt-get install -y ffmpeg
 
 WORKDIR /code
-COPY /dist/vocode-0.1.110-py3-none-any.whl /code/vocode-0.1.110-py3-none-any.whl
+COPY /dist/vocode-0.1.111a2-py3-none-any.whl /code/vocode-0.1.110-py3-none-any.whl
 COPY /apps/client_backend/requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 COPY /apps/client_backend/main.py /code/main.py

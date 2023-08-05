@@ -14,11 +14,8 @@ from typing import (
 )
 
 from openai.openai_object import OpenAIObject
-<<<<<<< HEAD
 from vocode.streaming.models.event_log import Message
 from vocode.streaming.models.events import Sender
-from vocode.streaming.models.transcript import Action, Transcript
-=======
 from vocode.streaming.models.actions import FunctionCall, FunctionFragment
 from vocode.streaming.models.events import Sender
 from vocode.streaming.models.transcript import (
@@ -27,7 +24,6 @@ from vocode.streaming.models.transcript import (
     Message,
     Transcript,
 )
->>>>>>> main
 
 SENTENCE_ENDINGS = [".", "!", "?", "\n"]
 

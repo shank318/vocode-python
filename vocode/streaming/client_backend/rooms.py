@@ -23,16 +23,17 @@ class RedisRoomProvider(BaseRoomsProvider):
         self.loop = asyncio.get_event_loop()
         self.room_id = f"channel:room:{room_id}"
         self.disconnect = False
-        redis_host = os.environ.get("REDIS_HOST", "localhost:6379")
-        self.redis_pool = aioredis.from_url(
-            f"redis://{redis_host}", max_connections=10, encoding="utf-8", decode_responses=True)
+        # redis_host = os.environ.get("REDIS_HOST", "localhost:6379")
+        # self.redis_pool = aioredis.from_url(
+        #     f"redis://{redis_host}", max_connections=10, encoding="utf-8", decode_responses=True)
 
     def join_room(self, websocket: WebSocket):
-        self.process_task = asyncio.create_task(self.subscribe(websocket))
+        self.websocket = websocket
+        # self.process_task = asyncio.create_task(self.subscribe(websocket))
 
     def terminate(self):
         self.disconnect = True
-        self.process_task.cancel()
+        # self.process_task.cancel()
 
     async def subscribe(self, websocket: WebSocket):
         psub = self.redis_pool.pubsub()
@@ -56,7 +57,7 @@ class RedisRoomProvider(BaseRoomsProvider):
                 except Exception as e:
                     self.logger.debug(f'Pubsub exception.. {e}')
                     break
-                except asyncio.CancelledError:
+                except asyncio.CancelledError as e:
                     self.logger.debug(f'Cancelled.. {e}')
                     break
 
@@ -73,4 +74,5 @@ class RedisRoomProvider(BaseRoomsProvider):
     async def publish(self, data):
         if self.disconnect is False:
             self.logger.debug(f'Publishing to  the Room: {self.room_id}')
-            await self.redis_pool.publish(self.room_id, data)
+            await self.websocket.send_text(data)
+            # await self.redis_pool.publish(self.room_id, data)

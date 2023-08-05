@@ -49,7 +49,7 @@ class ConversationRouter(BaseRouter):
     def __init__(
         self,
         data_store_type: DataStoreType,
-        agent_thunk: Callable[[], BaseAgent],
+        agent_thunk: Optional[Callable[[], BaseAgent]] = None,
         transcriber_thunk: Callable[
             [TranscriberConfig], BaseTranscriber
         ] = lambda transcriber_config: DeepgramTranscriber(
@@ -92,10 +92,11 @@ class ConversationRouter(BaseRouter):
             ChatGPTAgentConfig, start_message.agent_config)
 
         # Override it with the agent config received from the start message
-        self.agent_thunk = ChatGPTAgent(
-            logger=self.logger,
-            agent_config=agent_config
-        )
+        if self.agent_thunk is None:
+            self.agent_thunk = ChatGPTAgent(
+                logger=self.logger,
+                agent_config=agent_config
+            )
 
         # Create data store
         data_store_factory = DataStoreFactory()
@@ -105,7 +106,7 @@ class ConversationRouter(BaseRouter):
         return StreamingConversation(
             output_device=output_device,
             transcriber=transcriber,
-            agent=self.agent_thunk(),
+            agent=self.agent_thunk,
             synthesizer=synthesizer,
             query_params=query_params,
             conversation_id=start_message.conversation_id,
@@ -130,7 +131,7 @@ class ConversationRouter(BaseRouter):
         query_params_str = ', '.join([f"{key}={value}" for key, value in (
             query_params.items() if query_params else [])])
         self.logger.debug(
-            f"Conversation started id: {start_message.conversation_id}, query_params: {query_params_str}")
+            f"Conversation started id: {start_message.conversation_id}, query_params: {query_params_str}, start_message: {start_message.agent_config.initial_message}")
 
         conversation_recorder: BaseConversationRecorder = None
         if self.record:
