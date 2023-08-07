@@ -88,16 +88,6 @@ class ConversationRouter(BaseRouter):
         synthesizer = self.synthesizer_thunk(start_message.synthesizer_config)
         synthesizer.synthesizer_config.should_encode_as_wav = True
 
-        agent_config = typing.cast(
-            ChatGPTAgentConfig, start_message.agent_config)
-
-        # Override it with the agent config received from the start message
-        if self.agent_thunk is None:
-            self.agent_thunk = ChatGPTAgent(
-                logger=self.logger,
-                agent_config=agent_config
-            )
-
         # Create data store
         data_store_factory = DataStoreFactory()
         data_store = data_store_factory.create_data_store(
@@ -144,6 +134,15 @@ class ConversationRouter(BaseRouter):
             start_message.transcriber_config.sampling_rate,
             start_message.synthesizer_config.audio_encoding,
             conversation_recorder,
+        )
+
+        agent_config = typing.cast(
+            ChatGPTAgentConfig, start_message.agent_config)
+
+        # Override it with the agent config received from the start message
+        self.agent_thunk = ChatGPTAgent(
+            logger=self.logger,
+            agent_config=agent_config
         )
 
         conversation = self.get_conversation(

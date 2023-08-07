@@ -1,12 +1,13 @@
+import time
 from typing import Dict, Optional
+from pydantic import BaseModel, Field
 from vocode.streaming.models.events import Sender
-from vocode.streaming.models.model import BaseModel
 
 
 class EventLog(BaseModel):
     sender: Sender
-    timestamp: float
-
+    timestamp: float = Field(default_factory=time.time)
+    
     def to_string(self, include_timestamp: bool = False) -> str:
         raise NotImplementedError
 
