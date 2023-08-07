@@ -10,3 +10,6 @@ class TranscriptDataStore:
 
     def delete_message(self):
         raise NotImplementedError
+
+    def terminate(self):
+        raise NotImplementedError

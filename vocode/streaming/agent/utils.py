@@ -1,4 +1,5 @@
 import logging
+from copy import deepcopy
 import re
 from typing import (
     Dict,
@@ -21,6 +22,7 @@ from vocode.streaming.models.events import Sender
 from vocode.streaming.models.transcript import (
     ActionFinish,
     ActionStart,
+    EventLog,
     Message,
     Transcript,
 )
@@ -123,7 +125,30 @@ def format_openai_chat_messages_from_transcript(
     event_logs = transcript.get_messages()
     event_logs = sorted(event_logs, key=lambda m: m.timestamp)
 
-    for event_log in event_logs:
+    # merge consecutive bot messages
+    new_event_logs: List[EventLog] = []
+    idx = 0
+    while idx < len(event_logs):
+        bot_messages_buffer: List[Message] = []
+        current_log = event_logs[idx]
+        while isinstance(current_log, Message) and current_log.sender == Sender.BOT:
+            bot_messages_buffer.append(current_log)
+            idx += 1
+            try:
+                current_log = event_logs[idx]
+            except IndexError:
+                break
+        if bot_messages_buffer:
+            merged_bot_message = deepcopy(bot_messages_buffer[-1])
+            merged_bot_message.text = " ".join(
+                event_log.text for event_log in bot_messages_buffer
+            )
+            new_event_logs.append(merged_bot_message)
+        else:
+            new_event_logs.append(current_log)
+            idx += 1
+
+    for event_log in new_event_logs:
         if isinstance(event_log, Message):
             chat_messages.append(
                 {

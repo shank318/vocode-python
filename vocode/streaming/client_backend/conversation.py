@@ -6,6 +6,7 @@ import typing
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from vocode.conversation_recorder.base_recorder import BaseConversationRecorder
 from vocode.conversation_recorder.conversation_recorder import ConversationRecorder
+from vocode.data_store.base_data_store import TranscriptDataStore
 from vocode.data_store.data_store_factory import DataStoreFactory, DataStoreType
 from vocode.data_store.redis_data_store import RedisTranscriptDataStore
 from vocode.streaming.agent.base_agent import BaseAgent
@@ -48,8 +49,12 @@ BASE_CONVERSATION_ENDPOINT = "/conversation"
 class ConversationRouter(BaseRouter):
     def __init__(
         self,
-        data_store_type: DataStoreType,
-        agent_thunk: Optional[Callable[[], BaseAgent]] = None,
+        data_store_type: DataStoreType = DataStoreType.REDIS,
+        agent_thunk: Callable[
+            [ChatGPTAgentConfig], BaseAgent
+        ] = lambda agent_config: ChatGPTAgent(
+            agent_config
+        ),
         transcriber_thunk: Callable[
             [TranscriberConfig], BaseTranscriber
         ] = lambda transcriber_config: DeepgramTranscriber(
@@ -81,26 +86,24 @@ class ConversationRouter(BaseRouter):
     def get_conversation(
         self,
         output_device: WebsocketOutputDevice,
+        transcript_data_store: TranscriptDataStore,
         start_message: StartMessage,
         query_params: Dict[str, str],
     ) -> StreamingConversation:
         transcriber = self.transcriber_thunk(start_message.transcriber_config)
         synthesizer = self.synthesizer_thunk(start_message.synthesizer_config)
         synthesizer.synthesizer_config.should_encode_as_wav = True
-
-        # Create data store
-        data_store_factory = DataStoreFactory()
-        data_store = data_store_factory.create_data_store(
-            start_message.conversation_id, self.data_store_type, self.logger)
+        agent = self.agent_thunk(start_message.agent_config)
+        agent.agent_config.end_conversation_on_goodbye = False
 
         return StreamingConversation(
             output_device=output_device,
             transcriber=transcriber,
-            agent=self.agent_thunk,
+            agent=agent,
             synthesizer=synthesizer,
             query_params=query_params,
             conversation_id=start_message.conversation_id,
-            transcript_data_store=data_store,
+            transcript_data_store=transcript_data_store,
             events_manager=TranscriptEventManager(
                 output_device, self.logger) if start_message.subscribe_transcript else None,
             logger=self.logger,
@@ -112,6 +115,12 @@ class ConversationRouter(BaseRouter):
             await websocket.receive_json()
         )
 
+        # Create data store
+        data_store_factory = DataStoreFactory()
+        data_store = data_store_factory.create_data_store(
+            start_message.conversation_id, self.data_store_type, self.logger)
+
+        # Create room provider
         room_provider = RedisRoomProvider(
             self.logger, start_message.conversation_id)
         room_provider.join_room(websocket)
@@ -136,17 +145,8 @@ class ConversationRouter(BaseRouter):
             conversation_recorder,
         )
 
-        agent_config = typing.cast(
-            ChatGPTAgentConfig, start_message.agent_config)
-
-        # Override it with the agent config received from the start message
-        self.agent_thunk = ChatGPTAgent(
-            logger=self.logger,
-            agent_config=agent_config
-        )
-
         conversation = self.get_conversation(
-            output_device, start_message, query_params)
+            output_device, data_store, start_message, query_params)
         await conversation.start(lambda: websocket.send_text(ReadyMessage().json()))
 
         try:
@@ -173,6 +173,7 @@ class ConversationRouter(BaseRouter):
             room_provider.terminate()
             output_device.mark_closed()
             await conversation.terminate()
+            data_store.terminate()
             if conversation_recorder is not None:
                 conversation_recorder.stop_recording()
 

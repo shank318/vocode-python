@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "vocode-client-backend"
+version = "0.1.0"
+description = ""
+authors = ["Shashank Agarwal <shashank@tandamai.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+python-dotenv = "^1.0.0"
+redis = "^4.5.4"
+vocode = { file = "vocode-0.1.111a0-py3-none-any.whl" }
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

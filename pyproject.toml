@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "vocode"
-version = "0.1.111a2"
+version = "0.1.111a"
 description = "The all-in-one voice SDK"
 authors = ["Ajay Raj <ajay@vocode.dev>"]
 license = "MIT License"
@@ -32,7 +32,7 @@ gtts = {version = "^2.3.1", optional = true}
 
 google-cloud-speech = {version = "^2.19.0", optional = true}
 
-redis = {version="^4.5.4", optional=true}
+redis = "^4.5.4"
 twilio = {version = "^8.1.0", optional = true}
 vonage = {version = "^3.5.1", optional = true}
 nylas = {version = "^5.14.0", optional = true}

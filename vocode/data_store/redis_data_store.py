@@ -9,14 +9,17 @@ class RedisTranscriptDataStore(TranscriptDataStore):
     conversation_id: str
 
     def __init__(self, conversation_id: str, logger: Optional[logging.Logger] = None):
-        self.redis = Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", 6379)),
-            db=0,
-            decode_responses=True,
-        )
         self.conversation_id = conversation_id
         self.logger = logger or logging.getLogger(__name__)
+
+        try:
+            self.redis = Redis(host=os.environ.get("REDIS_HOST", "localhost"),
+                               port=int(os.environ.get("REDIS_PORT", 6379)),
+                               db=0,
+                               decode_responses=True,
+                               )
+        except Exception as e:
+            raise RuntimeError("Failed to establish Redis connection") from e
 
     def getConversationTranscriptCacheKey(self):
         return 'transcript:'+self.conversation_id
@@ -39,3 +42,8 @@ class RedisTranscriptDataStore(TranscriptDataStore):
         self.logger.debug(f"Deleting transcript for {self.conversation_id}")
         self.redis.delete(
             self.getConversationTranscriptCacheKey())
+
+    def terminate(self):
+        if self.redis:
+            self.logger.debug(f"Terminated redis data store for {self.conversation_id}")
+            self.redis.close()
