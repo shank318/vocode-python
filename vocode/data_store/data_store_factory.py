@@ -9,11 +9,8 @@ class DataStoreType(enum.Enum):
 
 
 class DataStoreFactory:
-    def create_data_store(self, conversation_id, type: DataStoreType, logger: logging.Logger):
+    def create_data_store(self, type: DataStoreType, logger: logging.Logger):
         if type == DataStoreType.REDIS:
-            return RedisTranscriptDataStore(
-                conversation_id=conversation_id,
-                logger=logger,
-            )
+            return RedisTranscriptDataStore(logger=logger)
         else:
             return None

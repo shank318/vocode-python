@@ -38,7 +38,6 @@ class ActionFinish(EventLog):
 class Transcript(BaseModel):
     event_logs: List[EventLog] = []
     start_time: float = Field(default_factory=time.time)
-    meta_data: Dict[str, str] = {}
     events_manager: Optional[EventsManager] = None
     data_store: Optional[TranscriptDataStore] = None
 
@@ -48,10 +47,9 @@ class Transcript(BaseModel):
     def attach_events_manager(self, events_manager: EventsManager):
         self.events_manager = events_manager
 
-    def add_meta_data(self, key: str, value: str):
-        if self.meta_data is None:
-            self.meta_data = {}
-        self.meta_data[key] = value
+    def load_previous_messages(self, conversation_id: str):
+        if len(self.event_logs) == 0 and self.data_store:
+            self.event_logs = self.data_store.get_messages(conversation_id)
 
     def attach_data_store(self, data_store: TranscriptDataStore):
         self.data_store = data_store
@@ -75,12 +73,6 @@ class Transcript(BaseModel):
                 )
             )
 
-    def get_messages(self) -> List[Message]:
-        if self.data_store is not None:
-            return self.data_store.get_messages()
-        else:
-            return self.event_logs
-
     def add_message_from_props(
         self,
         text: str,
@@ -90,7 +82,11 @@ class Transcript(BaseModel):
     ):
         timestamp = time.time()
         message = Message(text=text, sender=sender, timestamp=timestamp)
+
         self.event_logs.append(message)
+        if self.data_store:
+            self.data_store.save_message(conversation_id, message)
+
         if publish_to_events_manager:
             self.maybe_publish_transcript_event_from_message(
                 message=message, conversation_id=conversation_id
@@ -102,7 +98,11 @@ class Transcript(BaseModel):
         conversation_id: str,
         publish_to_events_manager: bool = True,
     ):
+
         self.event_logs.append(message)
+        if self.data_store:
+            self.data_store.save_message(conversation_id, message)
+
         if publish_to_events_manager:
             self.maybe_publish_transcript_event_from_message(
                 message=message, conversation_id=conversation_id

@@ -13,11 +13,12 @@ from vocode.streaming.models.transcript import TranscriptEvent
 
 class WebsocketOutputDevice(BaseOutputDevice):
     def __init__(
-        self, room_provider: BaseRoomsProvider, sampling_rate: int, audio_encoding: AudioEncoding, conversation_recorder: Optional[BaseConversationRecorder] = None
+        self, conversation_id: str, room_provider: BaseRoomsProvider, sampling_rate: int, audio_encoding: AudioEncoding, conversation_recorder: Optional[BaseConversationRecorder] = None
     ):
         super().__init__(sampling_rate, audio_encoding)
         self.room_provider = room_provider
         self.active = False
+        self.conversation_id = conversation_id
         self.conversation_recorder = conversation_recorder
         self.queue: asyncio.Queue[str] = asyncio.Queue()
 
@@ -31,7 +32,7 @@ class WebsocketOutputDevice(BaseOutputDevice):
     async def process(self):
         while self.active:
             message = await self.queue.get()
-            await self.room_provider.publish(message)
+            await self.room_provider.publish(self.conversation_id, message)
 
     def consume_nonblocking(self, chunk: bytes):
         if self.active:

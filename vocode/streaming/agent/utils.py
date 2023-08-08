@@ -122,20 +122,17 @@ def format_openai_chat_messages_from_transcript(
         [{"role": "system", "content": prompt_preamble}] if prompt_preamble else []
     )
 
-    event_logs = transcript.get_messages()
-    event_logs = sorted(event_logs, key=lambda m: m.timestamp)
-
     # merge consecutive bot messages
     new_event_logs: List[EventLog] = []
     idx = 0
-    while idx < len(event_logs):
+    while idx < len(transcript.event_logs):
         bot_messages_buffer: List[Message] = []
-        current_log = event_logs[idx]
+        current_log = transcript.event_logs[idx]
         while isinstance(current_log, Message) and current_log.sender == Sender.BOT:
             bot_messages_buffer.append(current_log)
             idx += 1
             try:
-                current_log = event_logs[idx]
+                current_log = transcript.event_logs[idx]
             except IndexError:
                 break
         if bot_messages_buffer:

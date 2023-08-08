@@ -11,7 +11,7 @@ from vocode.data_store.data_store_factory import DataStoreFactory, DataStoreType
 from vocode.data_store.redis_data_store import RedisTranscriptDataStore
 from vocode.streaming.agent.base_agent import BaseAgent
 from vocode.streaming.agent.chat_gpt_agent import ChatGPTAgent
-from vocode.streaming.client_backend.rooms import RedisRoomProvider
+from vocode.streaming.client_backend.rooms import BaseRoomsProvider
 from vocode.streaming.models.agent import ChatGPTAgentConfig
 from vocode.streaming.models.audio_encoding import AudioEncoding
 from vocode.streaming.models.client_backend import InputAudioConfig, OutputAudioConfig
@@ -49,7 +49,8 @@ BASE_CONVERSATION_ENDPOINT = "/conversation"
 class ConversationRouter(BaseRouter):
     def __init__(
         self,
-        data_store_type: DataStoreType = DataStoreType.REDIS,
+        room_provider: BaseRoomsProvider,
+        data_store: TranscriptDataStore,
         agent_thunk: Callable[
             [ChatGPTAgentConfig], BaseAgent
         ] = lambda agent_config: ChatGPTAgent(
@@ -70,7 +71,8 @@ class ConversationRouter(BaseRouter):
         conversation_endpoint: str = BASE_CONVERSATION_ENDPOINT,
     ):
         super().__init__()
-        self.data_store_type = data_store_type
+        self.data_store = data_store
+        self.room_provider = room_provider
         self.transcriber_thunk = transcriber_thunk
         self.agent_thunk = agent_thunk
         self.synthesizer_thunk = synthesizer_thunk
@@ -88,7 +90,6 @@ class ConversationRouter(BaseRouter):
         output_device: WebsocketOutputDevice,
         transcript_data_store: TranscriptDataStore,
         start_message: StartMessage,
-        query_params: Dict[str, str],
     ) -> StreamingConversation:
         transcriber = self.transcriber_thunk(start_message.transcriber_config)
         synthesizer = self.synthesizer_thunk(start_message.synthesizer_config)
@@ -101,7 +102,6 @@ class ConversationRouter(BaseRouter):
             transcriber=transcriber,
             agent=agent,
             synthesizer=synthesizer,
-            query_params=query_params,
             conversation_id=start_message.conversation_id,
             transcript_data_store=transcript_data_store,
             events_manager=TranscriptEventManager(
@@ -115,22 +115,13 @@ class ConversationRouter(BaseRouter):
             await websocket.receive_json()
         )
 
-        # Create data store
-        data_store_factory = DataStoreFactory()
-        data_store = data_store_factory.create_data_store(
-            start_message.conversation_id, self.data_store_type, self.logger)
+        # query_params = dict(websocket.query_params)
 
-        # Create room provider
-        room_provider = RedisRoomProvider(
-            self.logger, start_message.conversation_id)
-        room_provider.join_room(websocket)
+        # query_params_str = ', '.join([f"{key}={value}" for key, value in (
+        #     query_params.items() if query_params else [])])
 
-        query_params = dict(websocket.query_params)
-
-        query_params_str = ', '.join([f"{key}={value}" for key, value in (
-            query_params.items() if query_params else [])])
         self.logger.debug(
-            f"Conversation started id: {start_message.conversation_id}, query_params: {query_params_str}, start_message: {start_message.agent_config.initial_message}")
+            f"Conversation started id: {start_message.conversation_id}, start_message: {start_message.agent_config.initial_message}")
 
         conversation_recorder: BaseConversationRecorder = None
         if self.record:
@@ -139,14 +130,18 @@ class ConversationRouter(BaseRouter):
             conversation_recorder.start()
 
         output_device = WebsocketOutputDevice(
-            room_provider,
+            start_message.conversation_id,
+            self.room_provider,
             start_message.transcriber_config.sampling_rate,
             start_message.synthesizer_config.audio_encoding,
             conversation_recorder,
         )
 
+        room_provider_task = self.room_provider.join_room(
+            start_message.conversation_id, websocket)
+
         conversation = self.get_conversation(
-            output_device, data_store, start_message, query_params)
+            output_device, self.data_store, start_message)
         await conversation.start(lambda: websocket.send_text(ReadyMessage().json()))
 
         try:
@@ -170,10 +165,9 @@ class ConversationRouter(BaseRouter):
         except WebSocketDisconnect:
             self.logger.debug(
                 f"disconnecting ws for the conversation: {start_message.conversation_id}...")
-            room_provider.terminate()
             output_device.mark_closed()
+            room_provider_task.cancel()
             await conversation.terminate()
-            data_store.terminate()
             if conversation_recorder is not None:
                 conversation_recorder.stop_recording()
 

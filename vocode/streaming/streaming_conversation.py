@@ -336,11 +336,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     text="",
                     sender=Sender.BOT,
                 )
-                self.conversation.transcript.add_message(
-                    message=transcript_message,
-                    conversation_id=self.conversation.id,
-                    publish_to_events_manager=False,
-                )
+
                 message_sent, cut_off = await self.conversation.send_speech_to_output(
                     message.text,
                     synthesis_result,
@@ -348,6 +344,13 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     TEXT_TO_SPEECH_CHUNK_SIZE_SECONDS,
                     transcript_message=transcript_message,
                 )
+
+                self.conversation.transcript.add_message(
+                    message=transcript_message,
+                    conversation_id=self.conversation.id,
+                    publish_to_events_manager=False,
+                )
+
                 # publish the transcript message now that it includes what was said during send_speech_to_output
                 self.conversation.transcript.maybe_publish_transcript_event_from_message(
                     message=transcript_message,
@@ -384,7 +387,6 @@ class StreamingConversation(Generic[OutputDeviceType]):
         agent: BaseAgent,
         synthesizer: BaseSynthesizer,
         transcript_data_store: TranscriptDataStore,
-        query_params: Dict[str, str],
         conversation_id: Optional[str] = None,
         per_chunk_allowance_seconds: float = PER_CHUNK_ALLOWANCE_SECONDS,
         events_manager: Optional[EventsManager] = None,
@@ -399,7 +401,6 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.transcriber = transcriber
         self.agent = agent
         self.synthesizer = synthesizer
-        self.query_params = query_params
         self.synthesis_enabled = True
 
         self.interruptible_events: queue.Queue[InterruptibleEvent] = queue.Queue(
@@ -453,14 +454,13 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.events_manager = events_manager or EventsManager()
         self.events_task: Optional[asyncio.Task] = None
         self.per_chunk_allowance_seconds = per_chunk_allowance_seconds
-        
+
         self.transcript = Transcript()
         self.transcript.attach_data_store(transcript_data_store)
-
-        # add query params in the metadata
-        self.transcript.meta_data = self.query_params
-
         self.transcript.attach_events_manager(self.events_manager)
+        self.transcript.load_previous_messages(self.id)
+        self.logger.info(
+            f'loaded past transcript for converstion: {self.id} with {len(self.transcript.event_logs)} messages')
 
         self.bot_sentiment = None
         if self.agent.get_agent_config().track_bot_sentiment:
